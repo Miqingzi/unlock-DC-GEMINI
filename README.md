@@ -1,9 +1,5 @@
 # WARP Google/Gemini 双栈解锁脚本
 
-原功能来源于 https://github.com/vps8899/warp-google-unlock
-
-创建目的仅自己使用ᓚᘏᗢ
-
 一个面向 VPS 的系统级分流脚本，用 Cloudflare WARP 解锁 Google Gemini、Google 搜索、Google Play/商店，以及可选的 YouTube、OpenAI 和常见流媒体服务。
 
 脚本使用 `warp-cli` 的 SOCKS5 代理模式配合 `redsocks`、`iptables` 和 `ip6tables` 做透明转发，不需要修改 Xray、Sing-box、Hysteria2、TUIC 或 SSH 的配置文件。
@@ -22,14 +18,14 @@
 
 脚本在系统 NAT 表中写入规则，命中的 TCP 流量会自动转发到 WARP 本地 SOCKS5 代理。应用层无需额外配置。
 
-### Gemini IPv4/IPv6 双栈解锁
+### Gemini IPv4/IPv6 双栈支持
 
 脚本会同时维护 IPv4 和 IPv6 规则：
 
 * IPv4 使用 `iptables`。
-* IPv6 使用 `ip6tables`。
+* IPv6 透明转发需要系统中的 `redsocks` 支持 IPv6 监听；部分发行版自带的 redsocks 不支持 `::1`，脚本会自动跳过 IPv6 透明转发，避免安装失败。
 * 模式 1 会对 Gemini、Google 搜索、Google Play/商店等关键域名同时解析 A 和 AAAA 记录。
-* 模式 2/3 会加入 Google 常见 IPv4/IPv6 地址段。
+* 模式 2/3 会加入 Google 常见 IPv4/IPv6 地址段；IPv6 规则仅在显式开启 `ENABLE_IPV6_REDSOCKS=1` 时写入。
 
 ### 三种分流模式
 
@@ -53,6 +49,7 @@ warp mode 1
 warp mode 2
 warp mode 3
 warp test
+warp diag
 warp uninstall
 ```
 
@@ -70,7 +67,7 @@ bash <(curl -sL https://raw.githubusercontent.com/Miqingzi/unlock-DC-GEMINI/main
 
 ```bash
 chmod +x warp-google.sh
-./warp-google.sh install
+sudo ./warp-google.sh install
 ```
 
 ## 常用操作
@@ -87,6 +84,12 @@ warp status
 warp test
 ```
 
+查看出口地理信息和当前规则：
+
+```bash
+warp diag
+```
+
 切换为 Google 全家桶模式：
 
 ```bash
@@ -101,7 +104,10 @@ warp uninstall
 
 ## 注意事项
 
-* IPv6 双栈解锁依赖系统内核与 `ip6tables` NAT 支持；如果宿主机或容器禁用了 IPv6 NAT，IPv4 规则仍可正常工作。
+* IPv6 透明转发依赖系统内核、`ip6tables` NAT 与支持 IPv6 监听的 redsocks；如果宿主机、容器或 redsocks 不支持，IPv4 规则仍可正常工作。
+* 如确认本机 redsocks 支持 IPv6，可使用 `ENABLE_IPV6_REDSOCKS=1 ./warp-google.sh install` 开启 IPv6 透明转发。
+* 脚本会阻断命中目标的 UDP/443，避免浏览器或代理程序通过 QUIC/HTTP3 直连导致 Gemini 看到原始 VPS IP。
+* 当 IPv6 透明转发不可用时，脚本会阻断命中目标的 IPv6 TCP/UDP，促使连接回落到 IPv4 WARP，避免 Gemini 通过 AAAA 记录看到原始 IPv6。
 * 模式 1 通过域名解析生成规则，域名 IP 变化后可执行 `warp restart` 刷新。
 * 脚本不再黑洞 Google IPv6 地址段，避免破坏 Gemini 的 IPv6 访问能力。
 * `warp uninstall` 会删除脚本、服务和规则，但不会自动卸载系统软件包。如需移除软件包，请手动执行 `apt remove cloudflare-warp redsocks` 或对应的 `yum/dnf remove`。
