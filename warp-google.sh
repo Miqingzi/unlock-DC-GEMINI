@@ -10,9 +10,11 @@ NC='\033[0m'
 WARP_PROXY_PORT="${WARP_PROXY_PORT:-40000}"
 REDSOCKS_PORT="${REDSOCKS_PORT:-12345}"
 REDSOCKS6_PORT="${REDSOCKS6_PORT:-12346}"
+ENABLE_IPV6_REDSOCKS="${ENABLE_IPV6_REDSOCKS:-0}"
 HELPER=/usr/local/bin/warp-google
 MANAGER=/usr/local/bin/warp
 MODE_FILE=/etc/warp-google.mode
+IPV6_FLAG_FILE=/etc/warp-google.ipv6
 REDSOCKS_CONF=/etc/redsocks.conf
 SERVICE_FILE=/etc/systemd/system/warp-google.service
 
@@ -119,16 +121,18 @@ redsocks {
     type = socks5;
 }
 EOF
-    if ip -6 addr show dev lo 2>/dev/null | grep -q '::1'; then
+    rm -f "$IPV6_FLAG_FILE"
+    if [ "$ENABLE_IPV6_REDSOCKS" = "1" ] && ip -6 addr show dev lo 2>/dev/null | grep -q '::1'; then
         cat >> "$REDSOCKS_CONF" <<EOF
 redsocks {
-    local_ip = ::1;
+    local_ip = "::1";
     local_port = $REDSOCKS6_PORT;
     ip = 127.0.0.1;
     port = $WARP_PROXY_PORT;
     type = socks5;
 }
 EOF
+        echo "1" > "$IPV6_FLAG_FILE"
     fi
 }
 
@@ -139,7 +143,9 @@ set -euo pipefail
 
 REDSOCKS_PORT="${REDSOCKS_PORT:-12345}"
 REDSOCKS6_PORT="${REDSOCKS6_PORT:-12346}"
+ENABLE_IPV6_REDSOCKS="${ENABLE_IPV6_REDSOCKS:-0}"
 MODE_FILE=/etc/warp-google.mode
+IPV6_FLAG_FILE=/etc/warp-google.ipv6
 CHAIN4=WARP_GOOGLE
 CHAIN6=WARP_GOOGLE6
 
@@ -239,6 +245,10 @@ mode() {
     cat "$MODE_FILE" 2>/dev/null || echo "1"
 }
 
+ipv6_enabled() {
+    [ "$ENABLE_IPV6_REDSOCKS" = "1" ] || [ -f "$IPV6_FLAG_FILE" ]
+}
+
 add_v4() {
     local cidr="$1"
     iptables -t nat -A "$CHAIN4" -d "$cidr" -p tcp -j REDIRECT --to-ports "$REDSOCKS_PORT"
@@ -246,6 +256,7 @@ add_v4() {
 
 add_v6() {
     local cidr="$1"
+    ipv6_enabled || return 0
     ip6tables -t nat -A "$CHAIN6" -d "$cidr" -p tcp -j REDIRECT --to-ports "$REDSOCKS6_PORT" 2>/dev/null || true
 }
 
@@ -263,7 +274,9 @@ build_rules() {
     selected_mode="$(mode)"
     flush_rules
     iptables -t nat -N "$CHAIN4" 2>/dev/null || iptables -t nat -F "$CHAIN4"
-    ip6tables -t nat -N "$CHAIN6" 2>/dev/null || ip6tables -t nat -F "$CHAIN6" 2>/dev/null || true
+    if ipv6_enabled; then
+        ip6tables -t nat -N "$CHAIN6" 2>/dev/null || ip6tables -t nat -F "$CHAIN6" 2>/dev/null || true
+    fi
 
     case "$selected_mode" in
         1)
@@ -285,7 +298,9 @@ build_rules() {
     esac
 
     iptables -t nat -C OUTPUT -j "$CHAIN4" 2>/dev/null || iptables -t nat -A OUTPUT -j "$CHAIN4"
-    ip6tables -t nat -C OUTPUT -j "$CHAIN6" 2>/dev/null || ip6tables -t nat -A OUTPUT -j "$CHAIN6" 2>/dev/null || true
+    if ipv6_enabled; then
+        ip6tables -t nat -C OUTPUT -j "$CHAIN6" 2>/dev/null || ip6tables -t nat -A OUTPUT -j "$CHAIN6" 2>/dev/null || true
+    fi
 }
 
 start() {
@@ -315,7 +330,11 @@ status() {
     iptables -t nat -L "$CHAIN4" -n 2>/dev/null | head -20 || echo "无 IPv4 规则"
     echo
     echo "=== IPv6 rules ==="
-    ip6tables -t nat -L "$CHAIN6" -n 2>/dev/null | head -20 || echo "无 IPv6 规则"
+    if ipv6_enabled; then
+        ip6tables -t nat -L "$CHAIN6" -n 2>/dev/null | head -20 || echo "无 IPv6 规则"
+    else
+        echo "未启用 IPv6 透明转发（当前 redsocks 版本通常不支持 IPv6 监听）。"
+    fi
 }
 
 case "${1:-}" in
@@ -393,7 +412,7 @@ case "${1:-}" in
         /usr/local/bin/warp-google stop 2>/dev/null || true
         systemctl disable --now warp-google 2>/dev/null || true
         systemctl disable --now warp-svc 2>/dev/null || true
-        rm -f /etc/systemd/system/warp-google.service /usr/local/bin/warp-google /usr/local/bin/warp /etc/warp-google.mode /etc/redsocks.conf
+        rm -f /etc/systemd/system/warp-google.service /usr/local/bin/warp-google /usr/local/bin/warp /etc/warp-google.mode /etc/warp-google.ipv6 /etc/redsocks.conf
         systemctl daemon-reload 2>/dev/null || true
         echo "已卸载脚本文件。cloudflare-warp/redsocks 软件包如需移除，请手动执行 apt/yum/dnf remove。"
         ;;
@@ -453,7 +472,7 @@ do_install() {
 do_uninstall() {
     "$HELPER" stop 2>/dev/null || true
     systemctl disable --now warp-google 2>/dev/null || true
-    rm -f "$SERVICE_FILE" "$HELPER" "$MANAGER" "$MODE_FILE" "$REDSOCKS_CONF"
+    rm -f "$SERVICE_FILE" "$HELPER" "$MANAGER" "$MODE_FILE" "$IPV6_FLAG_FILE" "$REDSOCKS_CONF"
     systemctl daemon-reload 2>/dev/null || true
     echo -e "${GREEN}已清理分流规则与脚本文件。${NC}"
 }
