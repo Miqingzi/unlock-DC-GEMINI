@@ -1,3 +1,13 @@
+# 前言
+
+此项目采用原项目：https://github.com/vps8899/warp-google-unlock
+
+为解决 Gemini在你所在的区域不可用！的问题。
+
+由于原项目无法做到vps同时解锁ipv4和ipv6,对于目前racknerd的迁移导致大量污染IP送中，在ipv4和v6的切换使用上做此修改。
+
+此库仅为自用，如有需要可自行试用，warp代理并非代表100%识别为可用地址。
+
 # WARP Google/Gemini 双栈解锁脚本
 
 一个面向 VPS 的系统级分流脚本，用 Cloudflare WARP 解锁 Google Gemini、Google 搜索、Google Play/商店，以及可选的 YouTube、OpenAI 和常见流媒体服务。
