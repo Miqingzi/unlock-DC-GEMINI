@@ -148,6 +148,8 @@ MODE_FILE=/etc/warp-google.mode
 IPV6_FLAG_FILE=/etc/warp-google.ipv6
 CHAIN4=WARP_GOOGLE
 CHAIN6=WARP_GOOGLE6
+BLOCK4=WARP_GOOGLE_BLOCK
+BLOCK6=WARP_GOOGLE6_BLOCK
 
 GOOGLE_CORE_V4="
 8.8.4.0/24
@@ -252,21 +254,33 @@ ipv6_enabled() {
 add_v4() {
     local cidr="$1"
     iptables -t nat -A "$CHAIN4" -d "$cidr" -p tcp -j REDIRECT --to-ports "$REDSOCKS_PORT"
+    iptables -A "$BLOCK4" -d "$cidr" -p udp --dport 443 -j REJECT 2>/dev/null || true
 }
 
 add_v6() {
     local cidr="$1"
-    ipv6_enabled || return 0
-    ip6tables -t nat -A "$CHAIN6" -d "$cidr" -p tcp -j REDIRECT --to-ports "$REDSOCKS6_PORT" 2>/dev/null || true
+    if ipv6_enabled; then
+        ip6tables -t nat -A "$CHAIN6" -d "$cidr" -p tcp -j REDIRECT --to-ports "$REDSOCKS6_PORT" 2>/dev/null || true
+        ip6tables -A "$BLOCK6" -d "$cidr" -p udp --dport 443 -j REJECT 2>/dev/null || true
+    else
+        ip6tables -A "$BLOCK6" -d "$cidr" -p tcp -m multiport --dports 80,443 -j REJECT 2>/dev/null || true
+        ip6tables -A "$BLOCK6" -d "$cidr" -p udp --dport 443 -j REJECT 2>/dev/null || true
+    fi
 }
 
 flush_rules() {
     iptables -t nat -D OUTPUT -j "$CHAIN4" 2>/dev/null || true
     iptables -t nat -F "$CHAIN4" 2>/dev/null || true
     iptables -t nat -X "$CHAIN4" 2>/dev/null || true
+    iptables -D OUTPUT -j "$BLOCK4" 2>/dev/null || true
+    iptables -F "$BLOCK4" 2>/dev/null || true
+    iptables -X "$BLOCK4" 2>/dev/null || true
     ip6tables -t nat -D OUTPUT -j "$CHAIN6" 2>/dev/null || true
     ip6tables -t nat -F "$CHAIN6" 2>/dev/null || true
     ip6tables -t nat -X "$CHAIN6" 2>/dev/null || true
+    ip6tables -D OUTPUT -j "$BLOCK6" 2>/dev/null || true
+    ip6tables -F "$BLOCK6" 2>/dev/null || true
+    ip6tables -X "$BLOCK6" 2>/dev/null || true
 }
 
 build_rules() {
@@ -274,6 +288,8 @@ build_rules() {
     selected_mode="$(mode)"
     flush_rules
     iptables -t nat -N "$CHAIN4" 2>/dev/null || iptables -t nat -F "$CHAIN4"
+    iptables -N "$BLOCK4" 2>/dev/null || iptables -F "$BLOCK4"
+    ip6tables -N "$BLOCK6" 2>/dev/null || ip6tables -F "$BLOCK6" 2>/dev/null || true
     if ipv6_enabled; then
         ip6tables -t nat -N "$CHAIN6" 2>/dev/null || ip6tables -t nat -F "$CHAIN6" 2>/dev/null || true
     fi
@@ -298,6 +314,8 @@ build_rules() {
     esac
 
     iptables -t nat -C OUTPUT -j "$CHAIN4" 2>/dev/null || iptables -t nat -A OUTPUT -j "$CHAIN4"
+    iptables -C OUTPUT -j "$BLOCK4" 2>/dev/null || iptables -A OUTPUT -j "$BLOCK4"
+    ip6tables -C OUTPUT -j "$BLOCK6" 2>/dev/null || ip6tables -A OUTPUT -j "$BLOCK6" 2>/dev/null || true
     if ipv6_enabled; then
         ip6tables -t nat -C OUTPUT -j "$CHAIN6" 2>/dev/null || ip6tables -t nat -A OUTPUT -j "$CHAIN6" 2>/dev/null || true
     fi
@@ -329,12 +347,18 @@ status() {
     echo "=== IPv4 rules ==="
     iptables -t nat -L "$CHAIN4" -n 2>/dev/null | head -20 || echo "无 IPv4 规则"
     echo
+    echo "=== IPv4 UDP/QUIC block ==="
+    iptables -L "$BLOCK4" -n 2>/dev/null | head -20 || echo "无 IPv4 阻断规则"
+    echo
     echo "=== IPv6 rules ==="
     if ipv6_enabled; then
         ip6tables -t nat -L "$CHAIN6" -n 2>/dev/null | head -20 || echo "无 IPv6 规则"
     else
         echo "未启用 IPv6 透明转发（当前 redsocks 版本通常不支持 IPv6 监听）。"
     fi
+    echo
+    echo "=== IPv6 leak block ==="
+    ip6tables -L "$BLOCK6" -n 2>/dev/null | head -20 || echo "无 IPv6 阻断规则"
 }
 
 case "${1:-}" in
@@ -408,6 +432,26 @@ case "${1:-}" in
         echo "Gemini:"
         curl -s --max-time 10 -o /dev/null -w "%{http_code}\n" https://gemini.google.com || true
         ;;
+    diag)
+        direct4="$(curl -4 -s --max-time 8 ip.sb || true)"
+        direct6="$(curl -6 -s --max-time 8 ip.sb || true)"
+        warp4="$(curl -4 -x socks5://127.0.0.1:40000 -s --max-time 8 ip.sb || true)"
+        warp6="$(curl -6 -x socks5://127.0.0.1:40000 -s --max-time 8 ip.sb || true)"
+        echo "直连 IPv4: ${direct4:-无}"
+        [ -n "$direct4" ] && curl -s --max-time 8 "http://ip-api.com/line/$direct4?fields=country,regionName,city,isp,org,query" || true
+        echo
+        echo "直连 IPv6: ${direct6:-无}"
+        [ -n "$direct6" ] && curl -s --max-time 8 "http://ip-api.com/line/$direct6?fields=country,regionName,city,isp,org,query" || true
+        echo
+        echo "WARP IPv4: ${warp4:-无}"
+        [ -n "$warp4" ] && curl -s --max-time 8 "http://ip-api.com/line/$warp4?fields=country,regionName,city,isp,org,query" || true
+        echo
+        echo "WARP IPv6: ${warp6:-无}"
+        [ -n "$warp6" ] && curl -s --max-time 8 "http://ip-api.com/line/$warp6?fields=country,regionName,city,isp,org,query" || true
+        echo
+        echo "当前规则:"
+        /usr/local/bin/warp-google status
+        ;;
     uninstall)
         /usr/local/bin/warp-google stop 2>/dev/null || true
         systemctl disable --now warp-google 2>/dev/null || true
@@ -418,7 +462,7 @@ case "${1:-}" in
         ;;
     *)
         echo "WARP 管理命令"
-        echo "用法: warp {status|start|stop|restart|mode <1|2|3>|test|uninstall}"
+        echo "用法: warp {status|start|stop|restart|mode <1|2|3>|test|diag|uninstall}"
         ;;
 esac
 SCRIPT
@@ -466,7 +510,7 @@ do_install() {
     choose_mode
     setup_proxy
     test_connection
-    echo -e "${GREEN}安装完成。管理命令: warp {status|start|stop|restart|mode <1|2|3>|test|uninstall}${NC}"
+    echo -e "${GREEN}安装完成。管理命令: warp {status|start|stop|restart|mode <1|2|3>|test|diag|uninstall}${NC}"
 }
 
 do_uninstall() {
