@@ -207,6 +207,15 @@ OPENAI_V4="
 172.64.0.0/13
 "
 
+XAI_TWITTER_V4="
+69.195.160.0/19
+104.244.40.0/21
+185.45.4.0/22
+192.133.76.0/22
+199.16.156.0/22
+199.59.148.0/22
+"
+
 MODE1_DOMAINS="
 gemini.google.com
 ai.google.dev
@@ -230,15 +239,35 @@ api.x.ai
 accounts.x.ai
 auth.x.ai
 assets.x.ai
+cdn.x.ai
 grok.com
 www.grok.com
 api.grok.com
+app.grok.com
+auth.grok.com
+assets.grok.com
+cdn.grok.com
+static.grok.com
 x.com
 www.x.com
 api.x.com
+graphql.x.com
+grok.x.com
+client-event-reporter.x.com
+twitter.com
+www.twitter.com
+api.twitter.com
+graphql.twitter.com
+mobile.twitter.com
+t.co
 abs.twimg.com
+abs-0.twimg.com
 pbs.twimg.com
 video.twimg.com
+ton.twimg.com
+ton.twitter.com
+platform.twitter.com
+syndication.twitter.com
 "
 
 OPENAI_DOMAINS="
@@ -419,6 +448,11 @@ build_rules() {
                 exit 1
             fi
             [ "$site" = "all" ] || [ "$site" = "ai" ] || echo "单站点修复: $site"
+            case "$site" in
+                xai|x.ai|grok|all|ai)
+                    for ip in $XAI_TWITTER_V4; do add_v4 "$ip"; done
+                    ;;
+            esac
             for ip in $(resolve_domains 4 "$domains"); do add_v4 "$ip"; done
             for ip in $(resolve_domains 6 "$domains"); do add_v6 "$ip"; done
             ;;
@@ -431,13 +465,13 @@ build_rules() {
             for ip in $GOOGLE_V6; do add_v6 "$ip"; done
             ;;
         3)
-            for ip in $GOOGLE_CORE_V4 $GOOGLE_CLOUD_V4 $STREAMING_V4 $OPENAI_V4; do add_v4 "$ip"; done
+            for ip in $GOOGLE_CORE_V4 $GOOGLE_CLOUD_V4 $STREAMING_V4 $OPENAI_V4 $XAI_TWITTER_V4; do add_v4 "$ip"; done
             for ip in $(resolve_domains 4 "$XAI_DOMAINS $AI_DOMAINS"); do add_v4 "$ip"; done
             for ip in $(resolve_domains 6 "$XAI_DOMAINS $AI_DOMAINS"); do add_v6 "$ip"; done
             for ip in $GOOGLE_V6; do add_v6 "$ip"; done
             ;;
         4)
-            for ip in $GOOGLE_CORE_V4 $GOOGLE_CLOUD_V4 $OPENAI_V4; do add_v4 "$ip"; done
+            for ip in $GOOGLE_CORE_V4 $GOOGLE_CLOUD_V4 $OPENAI_V4 $XAI_TWITTER_V4; do add_v4 "$ip"; done
             for ip in $(resolve_domains 4 "$DEEP_FIX_DOMAINS"); do add_v4 "$ip"; done
             for ip in $(resolve_domains 6 "$DEEP_FIX_DOMAINS"); do add_v6 "$ip"; done
             for ip in $GOOGLE_V6; do add_v6 "$ip"; done
@@ -604,6 +638,10 @@ case "${1:-}" in
         curl -s --max-time 10 -o /dev/null -w "%{http_code}\n" https://x.ai || true
         echo "api.x.ai:"
         curl -s --max-time 10 -o /dev/null -w "%{http_code}\n" https://api.x.ai || true
+        echo "grok.com:"
+        curl -s --max-time 10 -o /dev/null -w "%{http_code}\n" https://grok.com || true
+        echo "api.grok.com:"
+        curl -s --max-time 10 -o /dev/null -w "%{http_code}\n" https://api.grok.com || true
         ;;
     diag)
         direct4="$(curl -4 -s --max-time 8 ip.sb || true)"
@@ -623,7 +661,7 @@ case "${1:-}" in
         [ -n "$warp6" ] && curl -s --max-time 8 "http://ip-api.com/line/$warp6?fields=country,regionName,city,isp,org,query" || true
         echo
         echo "站点 HTTP 状态:"
-        for site in https://gemini.google.com https://x.ai https://grok.x.ai https://api.x.ai https://chatgpt.com https://claude.ai https://perplexity.ai; do
+        for site in https://gemini.google.com https://x.ai https://grok.com https://grok.x.ai https://api.grok.com https://api.x.ai https://chatgpt.com https://claude.ai https://perplexity.ai; do
             printf "%-32s" "$site"
             curl -s --max-time 10 -o /dev/null -w "%{http_code}\n" "$site" || true
         done
@@ -651,6 +689,7 @@ SCRIPT
 
 run_manager_command() {
     if [ -x "$HELPER" ]; then
+        write_helper
         write_manager
         "$MANAGER" "$@"
         return
