@@ -234,25 +234,15 @@ store.google.com
 XAI_DOMAINS="
 x.ai
 www.x.ai
-grok.x.ai
 api.x.ai
 accounts.x.ai
 auth.x.ai
 assets.x.ai
 cdn.x.ai
-grok.com
-www.grok.com
-api.grok.com
-app.grok.com
-auth.grok.com
-assets.grok.com
-cdn.grok.com
-static.grok.com
 x.com
 www.x.com
 api.x.com
 graphql.x.com
-grok.x.com
 client-event-reporter.x.com
 twitter.com
 www.twitter.com
@@ -268,6 +258,20 @@ ton.twimg.com
 ton.twitter.com
 platform.twitter.com
 syndication.twitter.com
+"
+
+GROK_DOMAINS="
+grok.com
+www.grok.com
+api.grok.com
+app.grok.com
+auth.grok.com
+assets.grok.com
+cdn.grok.com
+static.grok.com
+grok.x.ai
+grok.x.com
+$XAI_DOMAINS
 "
 
 OPENAI_DOMAINS="
@@ -324,6 +328,7 @@ $COHERE_DOMAINS
 DEEP_FIX_DOMAINS="
 $MODE1_DOMAINS
 $XAI_DOMAINS
+$GROK_DOMAINS
 $AI_DOMAINS
 "
 
@@ -353,8 +358,11 @@ site_domains() {
         gemini|google)
             echo "$MODE1_DOMAINS"
             ;;
-        xai|x.ai|grok|grok.com)
+        xai|x.ai)
             echo "$XAI_DOMAINS"
+            ;;
+        grok|grok.com)
+            echo "$GROK_DOMAINS"
             ;;
         openai|chatgpt)
             echo "$OPENAI_DOMAINS"
@@ -449,7 +457,7 @@ build_rules() {
             fi
             [ "$site" = "all" ] || [ "$site" = "ai" ] || echo "单站点修复: $site"
             case "$site" in
-                xai|x.ai|grok|grok.com|all|ai)
+                grok|grok.com|all|ai)
                     for ip in $XAI_TWITTER_V4; do add_v4 "$ip"; done
                     ;;
             esac
@@ -465,7 +473,7 @@ build_rules() {
             for ip in $GOOGLE_V6; do add_v6 "$ip"; done
             ;;
         3)
-            for ip in $GOOGLE_CORE_V4 $GOOGLE_CLOUD_V4 $STREAMING_V4 $OPENAI_V4 $XAI_TWITTER_V4; do add_v4 "$ip"; done
+            for ip in $GOOGLE_CORE_V4 $GOOGLE_CLOUD_V4 $STREAMING_V4 $OPENAI_V4; do add_v4 "$ip"; done
             for ip in $(resolve_domains 4 "$XAI_DOMAINS $AI_DOMAINS"); do add_v4 "$ip"; done
             for ip in $(resolve_domains 6 "$XAI_DOMAINS $AI_DOMAINS"); do add_v6 "$ip"; done
             for ip in $GOOGLE_V6; do add_v6 "$ip"; done
