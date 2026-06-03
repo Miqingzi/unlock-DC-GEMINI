@@ -353,7 +353,7 @@ site_domains() {
         gemini|google)
             echo "$MODE1_DOMAINS"
             ;;
-        xai|x.ai|grok)
+        xai|x.ai|grok|grok.com)
             echo "$XAI_DOMAINS"
             ;;
         openai|chatgpt)
@@ -444,12 +444,12 @@ build_rules() {
             domains="$(site_domains "$site" || true)"
             if [ -z "$domains" ]; then
                 echo "未知站点: $site"
-                echo "可用站点: gemini, xai, openai, claude, perplexity, poe, openrouter, cohere, all"
+                echo "可用站点: gemini, xai, grok, grok.com, openai, claude, perplexity, poe, openrouter, cohere, all, off"
                 exit 1
             fi
             [ "$site" = "all" ] || [ "$site" = "ai" ] || echo "单站点修复: $site"
             case "$site" in
-                xai|x.ai|grok|all|ai)
+                xai|x.ai|grok|grok.com|all|ai)
                     for ip in $XAI_TWITTER_V4; do add_v4 "$ip"; done
                     ;;
             esac
@@ -538,13 +538,21 @@ case "${1:-}" in
     mode) mode "${2:-}"; start ;;
     site)
         if [ -z "${2:-}" ]; then
-            echo "用法: $0 site {gemini|xai|openai|claude|perplexity|poe|openrouter|cohere|all}"
+            echo "用法: $0 site {gemini|xai|grok|grok.com|openai|claude|perplexity|poe|openrouter|cohere|all|off}"
             exit 1
         fi
+        case "${2:-}" in
+            off|disable|disabled|close|none)
+                mode "1"
+                start
+                echo "已关闭单站点修复，恢复到模式 1。"
+                exit 0
+                ;;
+        esac
         mode "site:$2"
         start
         ;;
-    *) echo "用法: $0 {start|stop|restart|status|mode 1|2|3|4|site <name>}" ;;
+    *) echo "用法: $0 {start|stop|restart|status|mode 1|2|3|4|site <name|off>}" ;;
 esac
 SCRIPT
     chmod +x "$HELPER"
@@ -595,9 +603,17 @@ case "${1:-}" in
         ;;
     site)
         if [ -z "${2:-}" ]; then
-            echo "用法: warp site {gemini|xai|openai|claude|perplexity|poe|openrouter|cohere|all}"
+            echo "用法: warp site {gemini|xai|grok|grok.com|openai|claude|perplexity|poe|openrouter|cohere|all|off}"
             exit 1
         fi
+        case "${2:-}" in
+            off|disable|disabled|close|none)
+                echo "关闭单站点修复，恢复到模式 1..."
+                resolvectl flush-caches >/dev/null 2>&1 || systemd-resolve --flush-caches >/dev/null 2>&1 || true
+                /usr/local/bin/warp-google site off
+                exit 0
+                ;;
+        esac
         echo "启用单站点修复: $2"
         resolvectl flush-caches >/dev/null 2>&1 || systemd-resolve --flush-caches >/dev/null 2>&1 || true
         /usr/local/bin/warp-google site "$2"
@@ -679,8 +695,8 @@ case "${1:-}" in
         ;;
     *)
         echo "WARP 管理命令"
-        echo "用法: warp {status|start|stop|restart|mode <1|2|3|4>|site <name>|fix|repair|test|diag|uninstall}"
-        echo "单站点: gemini, xai, openai, claude, perplexity, poe, openrouter, cohere, all"
+        echo "用法: warp {status|start|stop|restart|mode <1|2|3|4>|site <name|off>|fix|repair|test|diag|uninstall}"
+        echo "单站点: gemini, xai, grok, grok.com, openai, claude, perplexity, poe, openrouter, cohere, all, off"
         ;;
 esac
 SCRIPT
@@ -705,7 +721,7 @@ run_manager_command() {
 }
 
 prompt_site_name() {
-    echo "可用站点: gemini, xai, openai, claude, perplexity, poe, openrouter, cohere, all"
+    echo "可用站点: gemini, xai, grok, grok.com, openai, claude, perplexity, poe, openrouter, cohere, all, off"
     read -r -p "请输入站点名: " site
     if [ -z "$site" ]; then
         echo "站点名不能为空。"
@@ -782,8 +798,9 @@ show_menu() {
     echo "4. 切换分流模式"
     echo "5. AI 站点深度修复"
     echo "6. 单站点修复"
+    echo "7. 关闭单站点修复（恢复模式 1）"
     echo "0. 退出"
-    read -r -p "请选择 [0-6]: " choice
+    read -r -p "请选择 [0-7]: " choice
     case "$choice" in
         1) do_install ;;
         2) do_uninstall ;;
@@ -801,6 +818,9 @@ show_menu() {
             ;;
         6)
             prompt_site_name
+            ;;
+        7)
+            run_manager_command site off
             ;;
         0) exit 0 ;;
         *) echo "无效选项。" ;;
@@ -824,10 +844,13 @@ main() {
         fix|repair|5) run_manager_command fix ;;
         site)
             if [ -z "${2:-}" ]; then
-                echo "用法: $0 site {gemini|xai|openai|claude|perplexity|poe|openrouter|cohere|all}"
+                echo "用法: $0 site {gemini|xai|grok|grok.com|openai|claude|perplexity|poe|openrouter|cohere|all|off}"
                 exit 1
             fi
             run_manager_command site "$2"
+            ;;
+        site-off|unsite|disable-site|7)
+            run_manager_command site off
             ;;
         6)
             if [ -n "${2:-}" ]; then
