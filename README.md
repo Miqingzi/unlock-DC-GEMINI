@@ -1,5 +1,14 @@
 # WARP Google/Gemini 双栈解锁脚本
 
+针对
+RackNerd DC-xx送中问题。
+
+建议使用7关闭单站点修复后恢复 gemini的访问，再根据自身情况
+
+按照 warp site xxxx 命令对单站点使用warp，防止过渡分流导致原本可用网站变为不可用。
+
+原 github 项目地址：https://github.com/vps8899/warp-google-unlock
+
 一个面向 VPS 的系统级分流脚本，用 Cloudflare WARP 解锁 Google Gemini、Google 搜索、Google Play/商店、x.ai/Grok，以及可选的 YouTube、OpenAI、Claude、Perplexity 和常见流媒体服务。
 
 脚本使用 `warp-cli` 的 SOCKS5 代理模式配合 `redsocks`、`iptables` 和 `ip6tables` 做透明转发，不需要修改 Xray、Sing-box、Hysteria2、TUIC 或 SSH 的配置文件。
