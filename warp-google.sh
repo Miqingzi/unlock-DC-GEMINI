@@ -222,6 +222,82 @@ play.google.com
 store.google.com
 "
 
+XAI_DOMAINS="
+x.ai
+www.x.ai
+grok.x.ai
+api.x.ai
+accounts.x.ai
+auth.x.ai
+assets.x.ai
+grok.com
+www.grok.com
+api.grok.com
+x.com
+www.x.com
+api.x.com
+abs.twimg.com
+pbs.twimg.com
+video.twimg.com
+"
+
+OPENAI_DOMAINS="
+chatgpt.com
+chat.openai.com
+api.openai.com
+auth.openai.com
+platform.openai.com
+cdn.openai.com
+oaistatic.com
+oaiusercontent.com
+"
+
+CLAUDE_DOMAINS="
+claude.ai
+api.anthropic.com
+console.anthropic.com
+claudeusercontent.com
+"
+
+PERPLEXITY_DOMAINS="
+perplexity.ai
+www.perplexity.ai
+api.perplexity.ai
+assets.perplexity.ai
+"
+
+POE_DOMAINS="
+poe.com
+www.poe.com
+api.poe.com
+"
+
+OPENROUTER_DOMAINS="
+openrouter.ai
+api.openrouter.ai
+"
+
+COHERE_DOMAINS="
+cohere.com
+dashboard.cohere.com
+api.cohere.com
+"
+
+AI_DOMAINS="
+$OPENAI_DOMAINS
+$CLAUDE_DOMAINS
+$PERPLEXITY_DOMAINS
+$POE_DOMAINS
+$OPENROUTER_DOMAINS
+$COHERE_DOMAINS
+"
+
+DEEP_FIX_DOMAINS="
+$MODE1_DOMAINS
+$XAI_DOMAINS
+$AI_DOMAINS
+"
+
 resolve_domains() {
     local family="$1"
     local domains="$2"
@@ -229,7 +305,11 @@ resolve_domains() {
     [ "$family" = "6" ] && qtype="AAAA"
     for domain in $domains; do
         if command -v dig >/dev/null 2>&1; then
-            dig +short "$qtype" "$domain" | awk '/^[0-9a-fA-F:.]+$/ {print}'
+            {
+                dig +time=2 +tries=1 +short @"1.1.1.1" "$qtype" "$domain"
+                dig +time=2 +tries=1 +short @"8.8.8.8" "$qtype" "$domain"
+                dig +time=2 +tries=1 +short "$qtype" "$domain"
+            } | awk '/^[0-9a-fA-F:.]+$/ {print}'
         else
             getent ahosts "$domain" | awk -v family="$family" '
                 family == "4" && $1 ~ /^[0-9.]+$/ {print $1}
@@ -237,6 +317,41 @@ resolve_domains() {
             '
         fi
     done | sort -u
+}
+
+site_domains() {
+    case "${1:-}" in
+        gemini|google)
+            echo "$MODE1_DOMAINS"
+            ;;
+        xai|x.ai|grok)
+            echo "$XAI_DOMAINS"
+            ;;
+        openai|chatgpt)
+            echo "$OPENAI_DOMAINS"
+            ;;
+        claude|anthropic)
+            echo "$CLAUDE_DOMAINS"
+            ;;
+        perplexity)
+            echo "$PERPLEXITY_DOMAINS"
+            ;;
+        poe)
+            echo "$POE_DOMAINS"
+            ;;
+        openrouter)
+            echo "$OPENROUTER_DOMAINS"
+            ;;
+        cohere)
+            echo "$COHERE_DOMAINS"
+            ;;
+        all|ai)
+            echo "$DEEP_FIX_DOMAINS"
+            ;;
+        *)
+            return 1
+            ;;
+    esac
 }
 
 mode() {
@@ -295,6 +410,18 @@ build_rules() {
     fi
 
     case "$selected_mode" in
+        site:*)
+            site="${selected_mode#site:}"
+            domains="$(site_domains "$site" || true)"
+            if [ -z "$domains" ]; then
+                echo "未知站点: $site"
+                echo "可用站点: gemini, xai, openai, claude, perplexity, poe, openrouter, cohere, all"
+                exit 1
+            fi
+            [ "$site" = "all" ] || [ "$site" = "ai" ] || echo "单站点修复: $site"
+            for ip in $(resolve_domains 4 "$domains"); do add_v4 "$ip"; done
+            for ip in $(resolve_domains 6 "$domains"); do add_v6 "$ip"; done
+            ;;
         1)
             for ip in $(resolve_domains 4 "$MODE1_DOMAINS"); do add_v4 "$ip"; done
             for ip in $(resolve_domains 6 "$MODE1_DOMAINS"); do add_v6 "$ip"; done
@@ -305,6 +432,14 @@ build_rules() {
             ;;
         3)
             for ip in $GOOGLE_CORE_V4 $GOOGLE_CLOUD_V4 $STREAMING_V4 $OPENAI_V4; do add_v4 "$ip"; done
+            for ip in $(resolve_domains 4 "$XAI_DOMAINS $AI_DOMAINS"); do add_v4 "$ip"; done
+            for ip in $(resolve_domains 6 "$XAI_DOMAINS $AI_DOMAINS"); do add_v6 "$ip"; done
+            for ip in $GOOGLE_V6; do add_v6 "$ip"; done
+            ;;
+        4)
+            for ip in $GOOGLE_CORE_V4 $GOOGLE_CLOUD_V4 $OPENAI_V4; do add_v4 "$ip"; done
+            for ip in $(resolve_domains 4 "$DEEP_FIX_DOMAINS"); do add_v4 "$ip"; done
+            for ip in $(resolve_domains 6 "$DEEP_FIX_DOMAINS"); do add_v6 "$ip"; done
             for ip in $GOOGLE_V6; do add_v6 "$ip"; done
             ;;
         *)
@@ -367,7 +502,15 @@ case "${1:-}" in
     restart) stop; sleep 1; start ;;
     status) status ;;
     mode) mode "${2:-}"; start ;;
-    *) echo "用法: $0 {start|stop|restart|status|mode 1|2|3}" ;;
+    site)
+        if [ -z "${2:-}" ]; then
+            echo "用法: $0 site {gemini|xai|openai|claude|perplexity|poe|openrouter|cohere|all}"
+            exit 1
+        fi
+        mode "site:$2"
+        start
+        ;;
+    *) echo "用法: $0 {start|stop|restart|status|mode 1|2|3|4|site <name>}" ;;
 esac
 SCRIPT
     chmod +x "$HELPER"
@@ -416,6 +559,32 @@ case "${1:-}" in
     mode)
         /usr/local/bin/warp-google mode "${2:-}"
         ;;
+    site)
+        if [ -z "${2:-}" ]; then
+            echo "用法: warp site {gemini|xai|openai|claude|perplexity|poe|openrouter|cohere|all}"
+            exit 1
+        fi
+        echo "启用单站点修复: $2"
+        resolvectl flush-caches >/dev/null 2>&1 || systemd-resolve --flush-caches >/dev/null 2>&1 || true
+        /usr/local/bin/warp-google site "$2"
+        ;;
+    fix|repair)
+        echo "启用 AI 深度修复模式..."
+        echo "4" > /etc/warp-google.mode
+        echo "刷新 DNS 缓存..."
+        resolvectl flush-caches >/dev/null 2>&1 || systemd-resolve --flush-caches >/dev/null 2>&1 || true
+        systemctl restart nscd >/dev/null 2>&1 || true
+        systemctl restart dnsmasq >/dev/null 2>&1 || true
+        echo "重连 WARP..."
+        warp-cli disconnect >/dev/null 2>&1 || true
+        sleep 2
+        warp-cli connect >/dev/null 2>&1 || true
+        sleep 2
+        /usr/local/bin/warp-google restart
+        echo
+        echo "已应用深度修复：AI 域名动态分流、QUIC 阻断、IPv6 防漏、DNS 缓存刷新。"
+        echo "请在浏览器/客户端清理 DNS 缓存或重启客户端后重试 x.ai/Grok/Gemini。"
+        ;;
     test)
         echo "直连 IPv4:"
         curl -4 -s --max-time 8 ip.sb || true
@@ -431,6 +600,10 @@ case "${1:-}" in
         echo
         echo "Gemini:"
         curl -s --max-time 10 -o /dev/null -w "%{http_code}\n" https://gemini.google.com || true
+        echo "x.ai:"
+        curl -s --max-time 10 -o /dev/null -w "%{http_code}\n" https://x.ai || true
+        echo "api.x.ai:"
+        curl -s --max-time 10 -o /dev/null -w "%{http_code}\n" https://api.x.ai || true
         ;;
     diag)
         direct4="$(curl -4 -s --max-time 8 ip.sb || true)"
@@ -449,6 +622,12 @@ case "${1:-}" in
         echo "WARP IPv6: ${warp6:-无}"
         [ -n "$warp6" ] && curl -s --max-time 8 "http://ip-api.com/line/$warp6?fields=country,regionName,city,isp,org,query" || true
         echo
+        echo "站点 HTTP 状态:"
+        for site in https://gemini.google.com https://x.ai https://grok.x.ai https://api.x.ai https://chatgpt.com https://claude.ai https://perplexity.ai; do
+            printf "%-32s" "$site"
+            curl -s --max-time 10 -o /dev/null -w "%{http_code}\n" "$site" || true
+        done
+        echo
         echo "当前规则:"
         /usr/local/bin/warp-google status
         ;;
@@ -462,7 +641,8 @@ case "${1:-}" in
         ;;
     *)
         echo "WARP 管理命令"
-        echo "用法: warp {status|start|stop|restart|mode <1|2|3>|test|diag|uninstall}"
+        echo "用法: warp {status|start|stop|restart|mode <1|2|3|4>|site <name>|fix|repair|test|diag|uninstall}"
+        echo "单站点: gemini, xai, openai, claude, perplexity, poe, openrouter, cohere, all"
         ;;
 esac
 SCRIPT
@@ -473,11 +653,12 @@ choose_mode() {
     echo -e "${CYAN}[3/4] 选择分流模式${NC}"
     echo "1. 仅 Gemini / Google 搜索 / Google Play / 商店（推荐，尽量保留 YouTube 直连）"
     echo "2. Google 全家桶（含 YouTube，IPv4/IPv6）"
-    echo "3. Google + 常见流媒体 + OpenAI（IPv4/IPv6 规则可用部分生效）"
-    read -r -p "请输入模式 [1-3，默认 1]: " selected
+    echo "3. Google + 常见流媒体 + OpenAI/x.ai（IPv4/IPv6 规则可用部分生效）"
+    echo "4. AI 深度修复模式（Gemini + x.ai/Grok + OpenAI + Claude + Perplexity 等）"
+    read -r -p "请输入模式 [1-4，默认 1]: " selected
     selected="${selected:-1}"
     case "$selected" in
-        1|2|3) echo "$selected" > "$MODE_FILE" ;;
+        1|2|3|4) echo "$selected" > "$MODE_FILE" ;;
         *) echo "1" > "$MODE_FILE" ;;
     esac
 }
@@ -510,7 +691,7 @@ do_install() {
     choose_mode
     setup_proxy
     test_connection
-    echo -e "${GREEN}安装完成。管理命令: warp {status|start|stop|restart|mode <1|2|3>|test|diag|uninstall}${NC}"
+    echo -e "${GREEN}安装完成。管理命令: warp {status|start|stop|restart|mode <1|2|3|4>|fix|test|diag|uninstall}${NC}"
 }
 
 do_uninstall() {
@@ -534,8 +715,10 @@ show_menu() {
     echo "2. 卸载"
     echo "3. 查看状态"
     echo "4. 切换分流模式"
+    echo "5. AI 站点深度修复"
+    echo "6. 单站点修复"
     echo "0. 退出"
-    read -r -p "请选择 [0-4]: " choice
+    read -r -p "请选择 [0-6]: " choice
     case "$choice" in
         1) do_install ;;
         2) do_uninstall ;;
@@ -547,6 +730,22 @@ show_menu() {
             fi
             choose_mode
             "$HELPER" restart
+            ;;
+        5)
+            if [ ! -x "$MANAGER" ]; then
+                echo "尚未安装。"
+                exit 1
+            fi
+            "$MANAGER" fix
+            ;;
+        6)
+            if [ ! -x "$MANAGER" ]; then
+                echo "尚未安装。"
+                exit 1
+            fi
+            echo "可用站点: gemini, xai, openai, claude, perplexity, poe, openrouter, cohere, all"
+            read -r -p "请输入站点名: " site
+            "$MANAGER" site "$site"
             ;;
         0) exit 0 ;;
         *) echo "无效选项。" ;;
@@ -567,6 +766,14 @@ main() {
         stop) "$HELPER" stop ;;
         restart) "$HELPER" restart ;;
         test) test_connection ;;
+        fix|repair) "$MANAGER" fix ;;
+        site)
+            if [ -z "${2:-}" ]; then
+                echo "用法: $0 site {gemini|xai|openai|claude|perplexity|poe|openrouter|cohere|all}"
+                exit 1
+            fi
+            "$MANAGER" site "$2"
+            ;;
         mode)
             if [ -n "${2:-}" ]; then
                 echo "$2" > "$MODE_FILE"
