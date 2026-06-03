@@ -649,6 +649,32 @@ SCRIPT
     chmod +x "$MANAGER"
 }
 
+run_manager_command() {
+    if [ -x "$HELPER" ]; then
+        write_manager
+        "$MANAGER" "$@"
+        return
+    fi
+
+    if [ -x "$MANAGER" ]; then
+        "$MANAGER" "$@"
+        return
+    fi
+
+    echo "尚未安装。"
+    exit 1
+}
+
+prompt_site_name() {
+    echo "可用站点: gemini, xai, openai, claude, perplexity, poe, openrouter, cohere, all"
+    read -r -p "请输入站点名: " site
+    if [ -z "$site" ]; then
+        echo "站点名不能为空。"
+        exit 1
+    fi
+    run_manager_command site "$site"
+}
+
 choose_mode() {
     echo -e "${CYAN}[3/4] 选择分流模式${NC}"
     echo "1. 仅 Gemini / Google 搜索 / Google Play / 商店（推荐，尽量保留 YouTube 直连）"
@@ -732,20 +758,10 @@ show_menu() {
             "$HELPER" restart
             ;;
         5)
-            if [ ! -x "$MANAGER" ]; then
-                echo "尚未安装。"
-                exit 1
-            fi
-            "$MANAGER" fix
+            run_manager_command fix
             ;;
         6)
-            if [ ! -x "$MANAGER" ]; then
-                echo "尚未安装。"
-                exit 1
-            fi
-            echo "可用站点: gemini, xai, openai, claude, perplexity, poe, openrouter, cohere, all"
-            read -r -p "请输入站点名: " site
-            "$MANAGER" site "$site"
+            prompt_site_name
             ;;
         0) exit 0 ;;
         *) echo "无效选项。" ;;
@@ -766,13 +782,20 @@ main() {
         stop) "$HELPER" stop ;;
         restart) "$HELPER" restart ;;
         test) test_connection ;;
-        fix|repair) "$MANAGER" fix ;;
+        fix|repair|5) run_manager_command fix ;;
         site)
             if [ -z "${2:-}" ]; then
                 echo "用法: $0 site {gemini|xai|openai|claude|perplexity|poe|openrouter|cohere|all}"
                 exit 1
             fi
-            "$MANAGER" site "$2"
+            run_manager_command site "$2"
+            ;;
+        6)
+            if [ -n "${2:-}" ]; then
+                run_manager_command site "$2"
+            else
+                prompt_site_name
+            fi
             ;;
         mode)
             if [ -n "${2:-}" ]; then
